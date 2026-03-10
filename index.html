@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Editor de Audio/Video</title>
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#0f0f0f">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js").then(reg => {
+        // Si hay un SW nuevo esperando, recarga para activarlo
+        reg.addEventListener("updatefound", () => {
+          reg.installing.addEventListener("statechange", e => {
+            if (e.target.state === "installed" && navigator.serviceWorker.controller) {
+              window.location.reload();
+            }
+          });
+        });
+      });
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: sans-serif;
+      background: #0f0f0f;
+      color: #eee;
+      min-height: 100vh;
+      padding: 24px 16px;
+    }
+    h1 { font-size: 1.2rem; color: #7df; margin-bottom: 20px; letter-spacing: 0.05em; }
+    .card { background: #1a1a1a; border-radius: 14px; padding: 18px; margin-bottom: 14px; }
+    .label {
+      font-size: 0.78rem; color: #777;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      margin-bottom: 10px; display: block;
+    }
+    #dropzone {
+      border: 2px dashed #333; border-radius: 10px;
+      padding: 28px 16px; text-align: center; cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    #dropzone:hover, #dropzone.over { border-color: #7df; background: #1e2a2a; }
+    #dropzone p { color: #555; font-size: 0.9rem; margin-top: 6px; }
+    #dropzone strong { color: #aaa; font-size: 1rem; }
+    audio, video { width: 100%; border-radius: 8px; margin-top: 4px; background: #000; }
+    #filename { font-size: 0.82rem; color: #666; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .slider-wrap { margin-bottom: 20px; }
+    .slider-wrap:last-child { margin-bottom: 0; }
+    .slider-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .slider-header span { font-size: 0.85rem; color: #aaa; }
+    .slider-header strong { font-size: 1rem; color: #7df; min-width: 52px; text-align: right; }
+    input[type="range"] {
+      -webkit-appearance: none; width: 100%; height: 4px;
+      border-radius: 2px; background: #333; outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 24px; height: 24px;
+      border-radius: 50%; background: #7df; cursor: pointer;
+      box-shadow: 0 0 6px #7df6;
+    }
+    .tick-row { display: flex; justify-content: space-between; margin-top: 5px; padding: 0 2px; }
+    .tick-row span { font-size: 0.65rem; color: #444; }
+    #btnProcess {
+      width: 100%; padding: 16px; border: none; border-radius: 12px;
+      background: #7df; color: #0f0f0f; font-size: 1rem; font-weight: bold;
+      cursor: pointer; transition: opacity 0.2s;
+    }
+    #btnProcess:disabled { background: #2a2a2a; color: #555; cursor: default; }
+    #status { margin-top: 12px; text-align: center; font-size: 0.85rem; color: #666; min-height: 20px; }
+    #status.ok { color: #7df; }
+    #status.err { color: #f77; }
+    #progressWrap { margin-top: 10px; height: 4px; background: #222; border-radius: 2px; overflow: hidden; display: none; }
+    #progressBar { height: 100%; width: 0%; background: #7df; border-radius: 2px; transition: width 0.3s; }
+    #ffmpegBadge {
+      display: inline-block; font-size: 0.7rem; padding: 3px 8px;
+      border-radius: 20px; background: #222; color: #555; margin-bottom: 16px;
+    }
+    #ffmpegBadge.ready { color: #7df; border: 1px solid #7df4; }
+  </style>
+</head>
+<body>
+
+<h1>🎬 Editor de Audio / Video</h1>
+<span id="ffmpegBadge">⏳ Cargando FFmpeg...</span>
+
+<div class="card">
+  <span class="label">Archivo</span>
+  <div id="dropzone">
+    <strong>Toca para elegir</strong>
+    <p>Audio o video — mp3, mp4, wav, ogg...</p>
+  </div>
+  <input type="file" id="fileInput" accept="audio/*,video/*" style="display:none">
+  <div id="previewWrap" style="display:none; margin-top:12px;">
+    <div id="filename"></div>
+    <div id="mediaContainer"></div>
+  </div>
+</div>
+
+<div class="card">
+  <span class="label">Ajustes</span>
+
+  <div class="slider-wrap">
+    <div class="slider-header">
+      <span>🔊 Volumen</span>
+      <strong id="volLabel">0 dB</strong>
+    </div>
+    <input type="range" id="volSlider" min="0" max="100" step="1" value="50">
+    <div class="tick-row">
+      <span>-20dB</span><span>-10dB</span><span>0dB</span><span>+10dB</span><span>+20dB</span>
+    </div>
+  </div>
+
+  <div class="slider-wrap">
+    <div class="slider-header">
+      <span>⚡ Velocidad</span>
+      <strong id="spdLabel">1.00x</strong>
+    </div>
+    <input type="range" id="spdSlider" min="0" max="100" step="1" value="50">
+    <div class="tick-row">
+      <span>0.5x</span><span>0.75x</span><span>Normal</span><span>1.5x</span><span>2x</span>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <button id="btnProcess" disabled>Elige un archivo primero</button>
+  <div id="progressWrap"><div id="progressBar"></div></div>
+  <div id="status"></div>
+</div>
+
+<script>
+  // ── Conversiones ───────────────────────────────────────────────
+
+  // Volumen en dB: slider 0-100, centro (50) = 0dB (sin cambio)
+  // 0 → -20dB, 50 → 0dB, 100 → +20dB — lineal en dB, natural al oído
+  function sliderToDB(pos) {
+    return (pos - 50) * 0.4; // rango: -20 a +20
+  }
+  // Para el GainNode del browser (que trabaja en lineal)
+  function dbToLinear(db) {
+    return Math.pow(10, db / 20);
+  }
+
+  // Velocidad: 0→0.5x, 50→1x, 100→2x — dos rectas simétricas
+  // Rango acotado: 0.5x-2x, que es donde atempo funciona nativamente sin encadenar
+  function sliderToSpeed(pos) {
+    if (pos <= 50) return 0.5 + (pos / 50) * 0.5;   // 0.5 → 1.0
+    return 1.0 + ((pos - 50) / 50) * 1.0;            // 1.0 → 2.0
+  }
+
+  function fmtDB(db) {
+    if (db === 0) return "0 dB";
+    return (db > 0 ? "+" : "") + db.toFixed(1) + " dB";
+  }
+  function fmtSpd(s) {
+    return s.toFixed(2) + "x";
+  }
+
+  // ── DOM ────────────────────────────────────────────────────────
+  const volSlider    = document.getElementById("volSlider");
+  const spdSlider    = document.getElementById("spdSlider");
+  const volLabel     = document.getElementById("volLabel");
+  const spdLabel     = document.getElementById("spdLabel");
+  const btnProcess   = document.getElementById("btnProcess");
+  const status       = document.getElementById("status");
+  const badge        = document.getElementById("ffmpegBadge");
+  const progressWrap = document.getElementById("progressWrap");
+  const progressBar  = document.getElementById("progressBar");
+  const fileInput    = document.getElementById("fileInput");
+  const dropzone     = document.getElementById("dropzone");
+  const previewWrap  = document.getElementById("previewWrap");
+  const mediaContainer = document.getElementById("mediaContainer");
+  const filenameEl   = document.getElementById("filename");
+
+  // ── Web Audio (preview fiel) ───────────────────────────────────
+  let mediaEl  = null;
+  let audioCtx = null;
+  let gainNode = null;
+  let compressor = null;
+
+  function connectAudio() {
+    if (audioCtx || !mediaEl) return;
+    audioCtx   = new (window.AudioContext || window.webkitAudioContext)();
+    const src  = audioCtx.createMediaElementSource(mediaEl);
+    gainNode   = audioCtx.createGain();
+
+    // Limitador suave: evita clipping en la preview
+    compressor = audioCtx.createDynamicsCompressor();
+    compressor.threshold.value = -3;
+    compressor.knee.value      = 6;
+    compressor.ratio.value     = 8;
+    compressor.attack.value    = 0.003;
+    compressor.release.value   = 0.1;
+
+    gainNode.gain.value = dbToLinear(sliderToDB(parseInt(volSlider.value)));
+    src.connect(gainNode);
+    gainNode.connect(compressor);
+    compressor.connect(audioCtx.destination);
+  }
+
+  // ── Sliders ────────────────────────────────────────────────────
+  volSlider.addEventListener("input", () => {
+    const db = sliderToDB(parseInt(volSlider.value));
+    volLabel.textContent = fmtDB(db);
+    if (gainNode) gainNode.gain.value = dbToLinear(db);
+  });
+
+  spdSlider.addEventListener("input", () => {
+    const s = sliderToSpeed(parseInt(spdSlider.value));
+    spdLabel.textContent = fmtSpd(s);
+    if (mediaEl) mediaEl.playbackRate = s;
+  });
+
+  // ── Archivo ────────────────────────────────────────────────────
+  dropzone.addEventListener("click", () => fileInput.click());
+  dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("over"); });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("over"));
+  dropzone.addEventListener("drop", e => { e.preventDefault(); dropzone.classList.remove("over"); handleFile(e.dataTransfer.files[0]); });
+  fileInput.addEventListener("change", e => handleFile(e.target.files[0]));
+
+  function handleFile(file) {
+    if (!file) return;
+    if (audioCtx) { audioCtx.close(); audioCtx = null; gainNode = null; compressor = null; }
+    mediaContainer.innerHTML = "";
+    const isVideo = file.type.startsWith("video");
+    mediaEl = document.createElement(isVideo ? "video" : "audio");
+    mediaEl.src = URL.createObjectURL(file);
+    mediaEl.controls = true;
+    mediaEl.crossOrigin = "anonymous";
+    mediaEl.addEventListener("play", connectAudio, { once: true });
+    mediaContainer.appendChild(mediaEl);
+    filenameEl.textContent = file.name;
+    previewWrap.style.display = "block";
+    volSlider.value = 50; spdSlider.value = 50;
+    volLabel.textContent = "0 dB"; spdLabel.textContent = "1.00x";
+    if (ffmpegReady) { btnProcess.disabled = false; btnProcess.textContent = "Procesar y Descargar"; }
+    setStatus("");
+  }
+
+  // ── FFmpeg ─────────────────────────────────────────────────────
+  let ffmpeg = null;
+  let ffmpegReady = false;
+
+  function setStatus(msg, cls) { status.textContent = msg; status.className = cls || ""; }
+
+  let progressInterval = null;
+  function startProgress() {
+    progressWrap.style.display = "block";
+    progressBar.style.width = "0%";
+    let pct = 0;
+    progressInterval = setInterval(() => {
+      pct = Math.min(pct + (pct < 80 ? 2 : 0.3), 95);
+      progressBar.style.width = pct + "%";
+    }, 200);
+  }
+  function finishProgress() {
+    clearInterval(progressInterval);
+    progressBar.style.width = "100%";
+    setTimeout(() => { progressWrap.style.display = "none"; }, 600);
+  }
+
+  btnProcess.addEventListener("click", async () => {
+    const file = fileInput.files[0];
+    if (!file || !ffmpegReady) return;
+
+    const vol = sliderToDB(parseInt(volSlider.value));
+    const spd = sliderToSpeed(parseInt(spdSlider.value));
+
+    btnProcess.disabled = true;
+    btnProcess.textContent = "Procesando...";
+    setStatus("⏳ FFmpeg trabajando...");
+    startProgress();
+
+    try {
+      const { fetchFile } = FFmpeg;
+      const ext     = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
+      const inName  = "input" + ext;
+      const outName = "output" + ext;
+
+      ffmpeg.FS("writeFile", inName, await fetchFile(file));
+
+      const filters = [];
+      if (Math.abs(vol) > 0.1) filters.push("volume=" + vol.toFixed(1) + "dB");
+      // Con rango 0.5-2.0, atempo nunca necesita encadenarse
+      if (Math.abs(spd - 1.0) > 0.01) filters.push("atempo=" + spd.toFixed(4));
+
+      const cmd = ["-i", inName, "-map", "0:a"];
+      if (filters.length) cmd.push("-af", filters.join(","));
+      else cmd.push("-c:a", "copy");
+      cmd.push(outName);
+
+      await ffmpeg.run(...cmd);
+
+      const data = ffmpeg.FS("readFile", outName);
+      const url  = URL.createObjectURL(new Blob([data.buffer], { type: file.type }));
+      const a    = document.createElement("a");
+      a.href = url; a.download = "editado" + ext; a.click();
+
+      ffmpeg.FS("unlink", inName);
+      ffmpeg.FS("unlink", outName);
+
+      finishProgress();
+      setStatus("✅ Listo — Vol: " + fmtDB(vol) + "  Vel: " + fmtSpd(spd), "ok");
+    } catch(err) {
+      finishProgress();
+      setStatus("❌ " + err.message, "err");
+    }
+
+    btnProcess.disabled = false;
+    btnProcess.textContent = "Procesar y Descargar";
+  });
+
+  const s = document.createElement("script");
+  s.src = "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js";
+  s.onload = async () => {
+    const { createFFmpeg } = FFmpeg;
+    ffmpeg = createFFmpeg({
+      corePath: "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js",
+      log: false,
+    });
+    await ffmpeg.load();
+    ffmpegReady = true;
+    badge.textContent = "✅ FFmpeg listo";
+    badge.className = "ready";
+    if (fileInput.files[0]) { btnProcess.disabled = false; btnProcess.textContent = "Procesar y Descargar"; }
+  };
+  document.head.appendChild(s);
+</script>
+</body>
+</html>
