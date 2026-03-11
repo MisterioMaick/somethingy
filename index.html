@@ -270,8 +270,8 @@
     const spd = sliderToSpeed(parseInt(spdSlider.value));
 
     btnProcess.disabled = true;
-    btnProcess.textContent = "Procesando...";
-    setStatus("⏳ FFmpeg trabajando...");
+    btnProcess.textContent = "Processing...";
+    setStatus("⏳ FFmpeg working...");
     startProgress();
 
     try {
@@ -290,22 +290,22 @@
       if (Math.abs(spd - 1.0) > 0.01) filters.push("atempo=" + spd.toFixed(4));
 
       const cmd = ["-i", inName];
-
       if (isVideo) {
-        // Video: copiar stream de video sin recodificar, procesar solo el audio
-        cmd.push("-map", "0:v:0", "-map", "0:a:0");
-        cmd.push("-c:v", "copy");
-        if (filters.length) cmd.push("-af", filters.join(","));
-        else cmd.push("-c:a", "copy");
+        if (filters.length) {
+          cmd.push("-c:v", "copy");
+          cmd.push("-af", filters.join(","));
+        } else {
+    // Sin cambios: copiar todo
+        cmd.push("-c", "copy");
+        }
       } else {
-        // Audio puro: ignorar imagen adjunta (portadas de MP3)
-        cmd.push("-map", "0:a:0");
-        if (filters.length) cmd.push("-af", filters.join(","));
-        else cmd.push("-c:a", "copy");
+      cmd.push("-map", "0:a:0");
+      if (filters.length) cmd.push("-af", filters.join(","));
+      else cmd.push("-c:a", "copy");
       }
 
       cmd.push(outName);
-
+      
       await ffmpeg.run(...cmd);
 
       const data = ffmpeg.FS("readFile", outName);
