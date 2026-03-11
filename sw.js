@@ -4,7 +4,7 @@
   2. Cachea archivos para offline (PWA)
 */
 
-const CACHE = "editor-av-v2";
+const CACHE = "editor-av-v3";
 
 const PRECACHE = [
   "./index.html",
