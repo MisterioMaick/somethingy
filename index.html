@@ -305,7 +305,7 @@
       }
 
       cmd.push(outName);
-      
+      setStatus("CMD: " + cmd.join(" "));
       await ffmpeg.run(...cmd);
 
       const data = ffmpeg.FS("readFile", outName);
