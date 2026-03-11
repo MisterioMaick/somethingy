@@ -300,11 +300,15 @@
         }
       } else {
       cmd.push("-map", "0:a:0");
-      if (filters.length) cmd.push("-af", filters.join(","));
-      else cmd.push("-c:a", "copy");
+      if (filters.length) {cmd.push("-af", filters.join(","));}
+      else {cmd.push("-c:a", "copy");}
       }
 
       cmd.push(outName);
+      console.log("CMD:", cmd.join(" "));
+console.log("isVideo:", isVideo);
+console.log("ext:", ext);
+console.log("file.type:", file.type);
       setStatus("CMD: " + cmd.join(" "));
       await ffmpeg.run(...cmd);
 
